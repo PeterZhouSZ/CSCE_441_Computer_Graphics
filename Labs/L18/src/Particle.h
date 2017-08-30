@@ -32,6 +32,8 @@ public:
 	Eigen::Vector3d x;  // position
 	Eigen::Vector3d v;  // velocity
 	bool fixed;
+	bool isCol; // collision detection 
+	Eigen::Vector3d normal;
 	
 private:
 	const std::shared_ptr<Shape> sphere;

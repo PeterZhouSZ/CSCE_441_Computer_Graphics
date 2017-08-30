@@ -21,7 +21,8 @@ Particle::Particle() :
 	i(-1),
 	x(0.0, 0.0, 0.0),
 	v(0.0, 0.0, 0.0),
-	fixed(true)
+	fixed(true),
+	isCol(false)
 {
 	
 }
@@ -33,6 +34,7 @@ Particle::Particle(const shared_ptr<Shape> s) :
 	x(0.0, 0.0, 0.0),
 	v(0.0, 0.0, 0.0),
 	fixed(true),
+	isCol(false),
 	sphere(s)
 {
 	

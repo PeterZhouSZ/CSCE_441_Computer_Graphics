@@ -10,10 +10,18 @@
 #include "MatrixStack.h"
 #include "Program.h"
 #include "GLSL.h"
+#include <stdio.h>
+#include "mosek.h"
 
 using namespace std;
 using namespace Eigen;
 typedef Eigen::Triplet<double> T;
+
+// prints log output from MOSEK to the terminal
+static void MSKAPI printstr(void *handle, MSKCONST char str[]){
+	printf("%s", str);
+}
+
 
 shared_ptr<Spring> createSpring(const shared_ptr<Particle> p0, const shared_ptr<Particle> p1, double E)
 {
@@ -482,6 +490,95 @@ void Cloth::step(double h, const Vector3d &grav, const vector< shared_ptr<Partic
 
 		}
 	}
+
+	// Collision Detection and Response (simple version)
+	int n_col = 0;
+	std::vector<int> index_cols;//used for the constraint matrix
+
+	for (int i = 0; i < spheres.size(); i++){
+	 	
+	 	shared_ptr<Particle> p_s = spheres[i];
+      	for (int j = 0; j < particles.size(); j++) {
+
+         	shared_ptr<Particle> p = particles[j];
+         	Vector3d dx = p->x - p_s->x;
+         	Vector3d dx_n = dx.normalized();
+
+         	// Collisions with the sphere
+
+         	if (dx.norm() <= p->r + p_s->r) {
+         		p->isCol = true;
+
+            	// p->x = ( (p_s->r + p->r) * dx_n + p_s->x);
+            
+            	Vector3d v_normal = p->v.dot(dx_n) * dx;
+
+            	// save the normal of each particle that has a collision event
+            	p->normal = v_normal.norm();// normalize
+            	index_cols.push_back(p->i);
+
+            	// p->v -= v_normal;
+         	}
+      	}
+	}
+
+	// Collision Detection and Response (complex version) using mosek
+
+
+	int numvar = n;
+	int numcon = 1;
+	int i,j =0;
+	// Init
+	MSKenv_t env = NULL;
+	MSKtask_t task = NULL;
+	MSKrescodee r;
+
+	// Create the mosek environment
+	r = MSK_makeenv(&env,NULL);
+	if( r==MSK_RES_OK){
+		//Create the optimization task
+		r = MSK_maketask(env,numcon,numvar,&task);
+
+		if(r==MSK_RES_OK){
+			r=MSK_linkfunctotaskstream(task,MSK_STREAM_LOG,NULL,printstr);
+
+		}
+
+		if(r== MSK_RES_OK){
+			r=MSK_appendcons(task,numcon);
+		}
+
+		if(r==MSK_RES_OK){
+			r=MSK_appendvars(task,numvar);
+		}
+		for(j=0; j<numvar && r==MSK_RES_OK; j++){
+			//Set the linear term b_j in the objective
+			if(r == MSK_RES_OK){
+				r = MSK_putcj(task,j,-b[j]);
+			}
+
+			//Set the bounds on var j
+			if(r == MSK_RES_OK){
+				r = MSK_putvarbound(task,
+									j,
+									MSK_BK_FR, // the constraint is free
+									-MSK_INFINITY,
+									+MSK_INFINITY);
+
+			}
+
+			//Input column j of matrix A
+
+
+
+		}
+
+	}
+
+
+
+
+
 
 
 	// Update position and normal buffers

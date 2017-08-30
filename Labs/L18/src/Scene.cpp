@@ -93,7 +93,7 @@ void Scene::draw(shared_ptr<MatrixStack> MV, const shared_ptr<Program> prog) con
 {
 	glUniform3fv(prog->getUniform("kdFront"), 1, Vector3f(1.0, 1.0, 1.0).data());
 	for(int i = 0; i < (int)spheres.size(); ++i) {
-		// spheres[i]->draw(MV, prog);
+		 spheres[i]->draw(MV, prog);
 	}
 	cloth->draw(MV, prog);
 }
