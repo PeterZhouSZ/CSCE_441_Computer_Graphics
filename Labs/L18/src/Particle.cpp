@@ -35,6 +35,8 @@ Particle::Particle(const shared_ptr<Shape> s) :
 	v(0.0, 0.0, 0.0),
 	fixed(true),
 	isCol(false),
+	normal(0.0,0.0,0.0),
+
 	sphere(s)
 {
 	

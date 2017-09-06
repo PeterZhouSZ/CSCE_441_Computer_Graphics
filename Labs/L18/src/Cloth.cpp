@@ -1,5 +1,4 @@
 #include <iostream>
-
 #define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -11,17 +10,11 @@
 #include "Program.h"
 #include "GLSL.h"
 #include <stdio.h>
-#include "mosek.h"
+#include <igl/mosek/mosek_quadprog.h>
 
 using namespace std;
 using namespace Eigen;
 typedef Eigen::Triplet<double> T;
-
-// prints log output from MOSEK to the terminal
-static void MSKAPI printstr(void *handle, MSKCONST char str[]){
-	printf("%s", str);
-}
-
 
 shared_ptr<Spring> createSpring(const shared_ptr<Particle> p0, const shared_ptr<Particle> p1, double E)
 {
@@ -282,7 +275,6 @@ void Cloth::step(double h, const Vector3d &grav, const vector< shared_ptr<Partic
 		}
 	}
 
-
 	for(int i=0; i<springs.size(); i++){
 
 		int idx0 = springs[i]->p0->i;
@@ -307,8 +299,6 @@ void Cloth::step(double h, const Vector3d &grav, const vector< shared_ptr<Partic
  				b(idx1+t) -= h * fs(t);
  			}
  		}
- 		
-
  		// The matrix Ks for one spring
 
  		Matrix3d xxT = dx * dx.transpose();
@@ -337,15 +327,13 @@ void Cloth::step(double h, const Vector3d &grav, const vector< shared_ptr<Partic
  			}
  		}
 	}
-
 	Eigen::SparseMatrix<double> A(n, n);
 	A.setFromTriplets(A_.begin(), A_.end());
-
-	ConjugateGradient< SparseMatrix<double> > cg;
-	cg.setMaxIterations(25);
-	cg.setTolerance(1e-3);
-	cg.compute(A);
-	VectorXd x = cg.solveWithGuess(b, v);
+	// ConjugateGradient< SparseMatrix<double> > cg;
+	// cg.setMaxIterations(25);
+	// cg.setTolerance(1e-3);
+	// cg.compute(A);
+	// VectorXd x = cg.solveWithGuess(b, v);
 
 	// cout << b << endl;
 	// cout << endl;
@@ -465,38 +453,36 @@ void Cloth::step(double h, const Vector3d &grav, const vector< shared_ptr<Partic
 	// 		particles[i]->x = pos_new;
 			
 	// 		particles[i]->v += proj;
-
-			
-
-	// 	}
-		
+	// 	}		
 	// }
 
  	// cout << x << endl;
  	// cout << endl;
 
-	for(int i = 0; i < particles.size(); i++){
+	// for(int i = 0; i < particles.size(); i++){
 		
-		if(particles[i]->i != -1){
-			particles[i]->v = x.segment<3>(particles[i]->i);
-		}
-		// particles[i]->v = x.segment<3>(particles[i]->i);
-	}
+	// 	if(particles[i]->i != -1){
+	// 		particles[i]->v = x.segment<3>(particles[i]->i);
+	// 	}
+	// 	// particles[i]->v = x.segment<3>(particles[i]->i);
+	// }
 
-	for(int i = 0; i < particles.size(); i++){
+	// for(int i = 0; i < particles.size(); i++){
 
-		if(particles[i]->i != -1){
-			particles[i]->x += particles[i]->v * h;
+	// 	if(particles[i]->i != -1){
+	// 		particles[i]->x += particles[i]->v * h;
 
-		}
-	}
+	// 	}
+	// }
 
 	// Collision Detection and Response (simple version)
-	int n_col = 0;
 	std::vector<int> index_cols;//used for the constraint matrix
 
+	vector<T> C_; // for constraints
+	//A_.push_back(T(idx+j, idx+j, mass));
+	int row = 0;
+
 	for (int i = 0; i < spheres.size(); i++){
-	 	
 	 	shared_ptr<Particle> p_s = spheres[i];
       	for (int j = 0; j < particles.size(); j++) {
 
@@ -505,82 +491,82 @@ void Cloth::step(double h, const Vector3d &grav, const vector< shared_ptr<Partic
          	Vector3d dx_n = dx.normalized();
 
          	// Collisions with the sphere
-
          	if (dx.norm() <= p->r + p_s->r) {
          		p->isCol = true;
-
-            	// p->x = ( (p_s->r + p->r) * dx_n + p_s->x);
-            
-            	Vector3d v_normal = p->v.dot(dx_n) * dx;
-
+            	p->x = ( (p_s->r + p->r) * dx_n + p_s->x);
+            	Vector3d v_normal = (p->v.dot(dx_n) * dx).normalized();
             	// save the normal of each particle that has a collision event
-            	p->normal = v_normal.norm();// normalize
+            	p->normal = v_normal;// normalize
+            	// filling the constraint matrix
+            	for(int t=0; t<3; t++){
+            		C_.push_back(T(row, (p->i) + t, v_normal(t)));
+            	}
+            	row ++;
             	index_cols.push_back(p->i);
-
             	// p->v -= v_normal;
          	}
       	}
 	}
 
-	// Collision Detection and Response (complex version) using mosek
-
-
-	int numvar = n;
-	int numcon = 1;
-	int i,j =0;
-	// Init
-	MSKenv_t env = NULL;
-	MSKtask_t task = NULL;
-	MSKrescodee r;
-
-	// Create the mosek environment
-	r = MSK_makeenv(&env,NULL);
-	if( r==MSK_RES_OK){
-		//Create the optimization task
-		r = MSK_maketask(env,numcon,numvar,&task);
-
-		if(r==MSK_RES_OK){
-			r=MSK_linkfunctotaskstream(task,MSK_STREAM_LOG,NULL,printstr);
-
-		}
-
-		if(r== MSK_RES_OK){
-			r=MSK_appendcons(task,numcon);
-		}
-
-		if(r==MSK_RES_OK){
-			r=MSK_appendvars(task,numvar);
-		}
-		for(j=0; j<numvar && r==MSK_RES_OK; j++){
-			//Set the linear term b_j in the objective
-			if(r == MSK_RES_OK){
-				r = MSK_putcj(task,j,-b[j]);
+	int num_collisions = index_cols.size();
+	if(num_collisions ==0){
+		ConjugateGradient< SparseMatrix<double> > cg;
+		cg.setMaxIterations(25);
+		cg.setTolerance(1e-3);
+		cg.compute(A);
+		VectorXd x = cg.solveWithGuess(b, v);
+		for(int i = 0; i < particles.size(); i++){
+			if(particles[i]->i != -1){
+				particles[i]->v = x.segment<3>(particles[i]->i);
 			}
-
-			//Set the bounds on var j
-			if(r == MSK_RES_OK){
-				r = MSK_putvarbound(task,
-									j,
-									MSK_BK_FR, // the constraint is free
-									-MSK_INFINITY,
-									+MSK_INFINITY);
-
-			}
-
-			//Input column j of matrix A
-
-
-
+			// particles[i]->v = x.segment<3>(particles[i]->i);
 		}
 
+		for(int i = 0; i < particles.size(); i++){
+			if(particles[i]->i != -1){
+				particles[i]->x += particles[i]->v * h;
+			}
+		}
 	}
 
+	if (num_collisions > 0){
+		Eigen::SparseMatrix<double> C(num_collisions, n);
+		C.setFromTriplets(C_.begin(), C_.end());
+		VectorXd lc = VectorXd:: Zero(num_collisions); // lc m-long vector of 0 for linear inequality
+		VectorXd uc = VectorXd:: Zero(num_collisions); // m-long +Inifity
+		VectorXd lx;
+		lx.resize(n); 
+		VectorXd ux;
+		ux.resize(n);
 
+		VectorXd cc = -b;
 
+		for(int i = 0; i < n; i++){
+			lx(i) = - MSK_INFINITY;
+			ux(i) = + MSK_INFINITY;
+		}
 
+		for (int i = 0;i < num_collisions; i++){
+			uc(i) = + MSK_INFINITY;
+		}
 
+		VectorXd results;
+		igl::mosek::MosekData mosek_data;
 
+		bool r = mosek_quadprog(A, cc, 0, C, lc, uc, lx, ux, mosek_data, results);
+		for(int i = 0; i < particles.size(); i++){
+			if(particles[i]->i != -1){
+				particles[i]->v = results.segment<3>(particles[i]->i);
+			}
+			// particles[i]->v = x.segment<3>(particles[i]->i);
+		}
 
+		for(int i = 0; i < particles.size(); i++){
+			if(particles[i]->i != -1){
+				particles[i]->x += particles[i]->v * h;
+			}
+		}
+	}
 	// Update position and normal buffers
 	updatePosNor();
 }
